@@ -1,0 +1,17 @@
+# Python
+__pycache__/
+*.py[cod]
+
+# Environments
+.env
+.env.*
+
+# Byte-compiled / optimized
+*.pyc
+
+# Local DB
+*.db
+
+# Docker
+*.log
+**/venv/
