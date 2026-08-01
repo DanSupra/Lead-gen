@@ -9,12 +9,84 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
-      - name: Create CI branch & PR (adds workflow, pre-commit, smoke test)
+      - name: Create CI files
+        run: |
+          mkdir -p .github/workflows
+          cat > .github/workflows/ci.yml <<'CIYML'
+name: CI
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: [3.11]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+      - name: Lint (ruff)
+        run: |
+          pip install ruff
+          ruff check .
+      - name: Run tests
+        run: |
+          pip install pytest
+          pytest -q
+CIYML
+
+          cat > .pre-commit-config.yaml <<'PCYML'
+repos:
+  - repo: https://github.com/charliermarsh/ruff-pre-commit
+    rev: v0.0.236
+    hooks:
+      - id: ruff
+        args: ["--fix"]
+
+  - repo: https://github.com/psf/black
+    rev: 24.1.0
+    hooks:
+      - id: black
+
+  - repo: https://github.com/pre-commit/mirrors-mypy
+    rev: v1.2.0
+    hooks:
+      - id: mypy
+
+  - repo: https://github.com/Yelp/detect-secrets
+    rev: v1.4.0
+    hooks:
+      - id: detect-secrets
+        stages: [commit]
+PCYML
+
+          mkdir -p tests
+          cat > tests/test_smoke.py <<'TS'
+# Simple test to ensure CI runs
+def test_smoke():
+    assert True
+TS
+
+      - name: Create CI PR (branch with run suffix to avoid collisions)
         uses: peter-evans/create-pull-request@v4
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
-          branch: ci/add-github-actions
+          branch: ci/add-github-actions-${{ github.run_number }}
           title: "chore(ci): add GitHub Actions CI, pre-commit hooks, and test runner"
           body: |
             Adds GitHub Actions CI workflow to run ruff and pytest on PRs and pushes to main.
@@ -25,73 +97,36 @@ jobs:
             2) Locally: pip install -r requirements.txt; pre-commit install; pre-commit run --all-files; pytest -q
           commit-message: "chore(ci): add CI workflow, pre-commit config, and smoke test"
           labels: "ci,infra"
-          files: |
-            .github/workflows/ci.yml: |
-              name: CI
 
-              on:
-                push:
-                  branches: [ main ]
-                pull_request:
-                  branches: [ main ]
+      - name: Create idempotency files
+        run: |
+          mkdir -p app
+          cat > app/idempotency.py <<'IDEMP'
+# Lightweight idempotency helper: dedupe by leadgen_id before creating a Lead.
+# This function is a lightweight helper; adapt to your DB/session/ORM setup.
+def find_or_create_lead(session, Lead, lead_data: dict) -> dict:
+    leadgen_id = lead_data.get('leadgen_id')
+    if leadgen_id:
+        existing = session.query(Lead).filter_by(leadgen_id=leadgen_id).one_or_none()
+        if existing:
+            return {"status": "exists", "id": str(existing.id)}
+    new = Lead(**lead_data)
+    session.add(new)
+    session.commit()
+    return {"status": "created", "id": str(new.id)}
+IDEMP
 
-              jobs:
-                test:
-                  runs-on: ubuntu-latest
-                  strategy:
-                    matrix:
-                      python-version: [3.11]
-                  steps:
-                    - uses: actions/checkout@v4
-                    - name: Set up Python
-                      uses: actions/setup-python@v4
-                      with:
-                        python-version: ${{ matrix.python-version }}
-                    - name: Install dependencies
-                      run: |
-                        python -m pip install --upgrade pip
-                        pip install -r requirements.txt
-                    - name: Lint (ruff)
-                      run: |
-                        pip install ruff
-                        ruff check .
-                    - name: Run tests
-                      run: |
-                        pip install pytest
-                        pytest -q
-            .pre-commit-config.yaml: |
-              repos:
-                - repo: https://github.com/charliermarsh/ruff-pre-commit
-                  rev: v0.0.236
-                  hooks:
-                    - id: ruff
-                      args: ["--fix"]
+          cat > tests/test_idempotency.py <<'TIDEMP'
+# Placeholder smoke test for idempotency; replace with DB-backed tests.
+def test_idempotency_smoke():
+    assert True
+TIDEMP
 
-                - repo: https://github.com/psf/black
-                  rev: 24.1.0
-                  hooks:
-                    - id: black
-
-                - repo: https://github.com/pre-commit/mirrors-mypy
-                  rev: v1.2.0
-                  hooks:
-                    - id: mypy
-
-                - repo: https://github.com/Yelp/detect-secrets
-                  rev: v1.4.0
-                  hooks:
-                    - id: detect-secrets
-                      stages: [commit]
-            tests/test_smoke.py: |
-              # Simple test to ensure CI runs
-              def test_smoke():
-                  assert True
-
-      - name: Create idempotency branch & PR (adds helper + test)
+      - name: Create idempotency PR (branch with run suffix to avoid collisions)
         uses: peter-evans/create-pull-request@v4
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
-          branch: fix/idempotency
+          branch: fix/idempotency-${{ github.run_number }}
           title: "fix(idempotency): dedupe lead ingestion by leadgen_id; add tests"
           body: |
             Adds an idempotency helper to dedupe by leadgen_id before creating leads.
@@ -101,21 +136,3 @@ jobs:
             - Archival (S3/MinIO) skeleton is intentionally omitted until credentials are supplied.
           commit-message: "feat(idempotency): add idempotency helper and tests"
           labels: "infra,bug"
-          files: |
-            app/idempotency.py: |
-              # Lightweight idempotency helper: dedupe by leadgen_id before creating a Lead.
-              # This function is a lightweight helper; adapt to your DB/session/ORM setup.
-              def find_or_create_lead(session, Lead, lead_data: dict) -> dict:
-                  leadgen_id = lead_data.get('leadgen_id')
-                  if leadgen_id:
-                      existing = session.query(Lead).filter_by(leadgen_id=leadgen_id).one_or_none()
-                      if existing:
-                          return {"status": "exists", "id": str(existing.id)}
-                  new = Lead(**lead_data)
-                  session.add(new)
-                  session.commit()
-                  return {"status": "created", "id": str(new.id)}
-            tests/test_idempotency.py: |
-              # Placeholder smoke test for idempotency; replace with DB-backed tests.
-              def test_idempotency_smoke():
-                  assert True
