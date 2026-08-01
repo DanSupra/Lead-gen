@@ -24,6 +24,7 @@ jobs:
         run: |
           git switch -c "$BRANCH_CI"
           mkdir -p .github/workflows
+
           cat > .github/workflows/ci.yml <<'EOF'
 name: CI
 
@@ -86,4 +87,58 @@ EOF
 # Simple test to ensure CI runs
 
 def test_smoke():
+    assert True
+EOF
+
+          git add .github/workflows/ci.yml .pre-commit-config.yaml tests/test_smoke.py
+          git commit -m "chore(ci): add GitHub Actions CI, pre-commit config, and smoke test" || echo "No changes to commit"
+
+      - name: Create PR for CI branch
+        uses: peter-evans/create-pull-request@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          branch: ${{ env.BRANCH_CI }}
+          title: "chore(ci): add GitHub Actions CI, pre-commit hooks, and test runner"
+          body: |
+            Adds GitHub Actions CI workflow to run ruff and pytest on PRs and pushes to main.
+            Also includes .pre-commit-config.yaml and a smoke test (tests/test_smoke.py).
+
+            Verification:
+            1) Ensure Actions run on the PR and that lint/tests pass.
+            2) Locally: pip install -r requirements.txt; pre-commit install; pre-commit run --all-files; pytest -q
+          commit-message: "chore(ci): add CI workflow, pre-commit config, and smoke test"
+          labels: "ci,infra"
+
+      - name: Create branch, add idempotency files, and commit
+        run: |
+          git switch main
+          git pull origin main --ff-only
+          git switch -c "$BRANCH_IDEMP"
+
+          mkdir -p app
+          cat > app/idempotency.py <<'EOF'
+# Lightweight idempotency helper: dedupe by leadgen_id before creating a Lead.
+# Adapt to your DB/session/ORM setup.
+def find_or_create_lead(session, Lead, lead_data: dict) -> dict:
+    leadgen_id = lead_data.get('leadgen_id')
+    if leadgen_id:
+        existing = session.query(Lead).filter_by(leadgen_id=leadgen_id).one_or_none()
+        if existing:
+            return {"status": "exists", "id": str(existing.id)}
+    new = Lead(**lead_data)
+    session.add(new)
+    session.commit()
+    return {"status": "created", "id": str(new.id)}
+EOF
+
+          mkdir -p tests
+          cat > tests/test_idempotency.py <<'EOF'
+# Placeholder smoke test for idempotency; replace with DB-backed tests.
+
+def test_idempotency_smoke():
+    assert True
+EOF
+
+          git add app/idempotency.py tests/test_idempotency.py
+          git
 
