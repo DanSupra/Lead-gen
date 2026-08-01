@@ -3,44 +3,29 @@ name: "Automated PRs: CI + Idempotency"
 on:
   workflow_dispatch:
 
-permissions:
-  contents: write
-  pull-requests: write
-
 jobs:
   create-prs:
     runs-on: ubuntu-latest
+    env:
+      BRANCH_CI: ci/add-github-actions-${{ github.run_number }}
+      BRANCH_IDEMP: fix/idempotency-${{ github.run_number }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      - name: Create CI branch and open PR
-        uses: actions/github-script@v7
-        with:
-          github-token: ${{ secrets.GITHUB_TOKEN }}
-          script: |
-            const baseBranch = 'main';
-            const runSuffix = `-run-${process.env.GITHUB_RUN_NUMBER || Math.floor(Math.random()*100000)}`;
-            const branchName = `ci/add-github-actions${runSuffix}`;
-            const owner = context.repo.owner;
-            const repo = context.repo.repo;
+      - name: Configure git author
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
-            // Get the SHA of base branch
-            const baseRef = await github.rest.git.getRef({
-              owner, repo, ref: `heads/${baseBranch}`
-            });
-            const baseSha = baseRef.data.object.sha;
-
-            // Create a new branch from base
-            await github.rest.git.createRef({
-              owner, repo, ref: `refs/heads/${branchName}`, sha: baseSha
-            });
-
-            // Files to add on the new branch
-            const files = {
-              '.github/workflows/ci.yml': `name: CI
+      - name: Create branch, add CI files, and commit
+        run: |
+          git switch -c "$BRANCH_CI"
+          mkdir -p .github/workflows
+          cat > .github/workflows/ci.yml <<'EOF'
+name: CI
 
 on:
   push:
@@ -69,8 +54,10 @@ jobs:
         run: |
           pip install pytest
           pytest -q
-`,
-              '.pre-commit-config.yaml': `repos:
+EOF
+
+          cat > .pre-commit-config.yaml <<'EOF'
+repos:
   - repo: https://github.com/charliermarsh/ruff-pre-commit
     rev: v0.0.236
     hooks:
@@ -92,71 +79,11 @@ jobs:
     hooks:
       - id: detect-secrets
         stages: [commit]
-`,
-              'tests/test_smoke.py': `# Simple test to ensure CI runs
+EOF
+
+          mkdir -p tests
+          cat > tests/test_smoke.py <<'EOF'
+# Simple test to ensure CI runs
 
 def test_smoke():
-    assert True
-`
-            };
-
-            // Create each file on the new branch
-            for (const path of Object.keys(files)) {
-              await github.rest.repos.createOrUpdateFileContents({
-                owner,
-                repo,
-                path,
-                message: `chore(ci): add ${path}`,
-                content: Buffer.from(files[path]).toString('base64'),
-                branch: branchName
-              });
-            }
-
-            // Open a PR
-            const pr = await github.rest.pulls.create({
-              owner,
-              repo,
-              title: "chore(ci): add GitHub Actions CI, pre-commit hooks, and test runner",
-              head: branchName,
-              base: baseBranch,
-              body: `Adds GitHub Actions CI workflow to run ruff and pytest on PRs and pushes to main.
-
-Includes .pre-commit-config.yaml and a smoke test (tests/test_smoke.py).
-
-Verification:
-1) Ensure Actions run on the PR and that lint/tests pass.
-2) Locally: pip install -r requirements.txt; pre-commit install; pre-commit run --all-files; pytest -q`
-            });
-
-            core.info(`Created CI PR: ${pr.data.html_url}`);
-            core.setOutput('ci_pr_url', pr.data.html_url);
-
-      - name: Create idempotency branch and open PR
-        uses: actions/github-script@v7
-        with:
-          github-token: ${{ secrets.GITHUB_TOKEN }}
-          script: |
-            const baseBranch = 'main';
-            const runSuffix = `-run-${process.env.GITHUB_RUN_NUMBER || Math.floor(Math.random()*100000)}`;
-            const branchName = `fix/idempotency${runSuffix}`;
-            const owner = context.repo.owner;
-            const repo = context.repo.repo;
-
-            const baseRef = await github.rest.git.getRef({
-              owner, repo, ref: `heads/${baseBranch}`
-            });
-            const baseSha = baseRef.data.object.sha;
-
-            await github.rest.git.createRef({
-              owner, repo, ref: `refs/heads/${branchName}`, sha: baseSha
-            });
-
-            const files = {
-              'app/idempotency.py': `# Lightweight idempotency helper: dedupe by leadgen_id before creating a Lead.
-# This function is a helper; adapt to your DB/session/ORM setup.
-def find_or_create_lead(session, Lead, lead_data: dict) -> dict:
-    leadgen_id = lead_data.get('leadgen_id')
-    if leadgen_id:
-        existing = session.query(Lead).filter_by(leadgen_id=leadgen_id).one_or_none()
-        if existing`
 
