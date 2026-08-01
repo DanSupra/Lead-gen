@@ -15,7 +15,7 @@ jobs:
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
           branch: ci/add-github-actions
-          title: chore(ci): add GitHub Actions CI, pre-commit hooks, and test runner
+          title: "chore(ci): add GitHub Actions CI, pre-commit hooks, and test runner"
           body: |
             Adds GitHub Actions CI workflow to run ruff and pytest on PRs and pushes to main.
             Also adds .pre-commit-config.yaml and a smoke test (tests/test_smoke.py).
@@ -23,8 +23,8 @@ jobs:
             Verification:
             1) Ensure Actions run on the PR and that lint/tests pass.
             2) Locally: pip install -r requirements.txt; pre-commit install; pre-commit run --all-files; pytest -q
-          commit-message: chore(ci): add CI workflow, pre-commit config, and smoke test
-          labels: ci,infra
+          commit-message: "chore(ci): add CI workflow, pre-commit config, and smoke test"
+          labels: "ci,infra"
           files: |
             .github/workflows/ci.yml: |
               name: CI
@@ -92,15 +92,15 @@ jobs:
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
           branch: fix/idempotency
-          title: fix(idempotency): dedupe lead ingestion by leadgen_id; add tests
+          title: "fix(idempotency): dedupe lead ingestion by leadgen_id; add tests"
           body: |
             Adds an idempotency helper to dedupe by leadgen_id before creating leads.
             Includes a placeholder smoke test; replace with DB-backed tests (mock your session and Lead model).
             Notes:
             - This is intentionally small and non-invasive; integrate with your models and existing request handlers.
             - Archival (S3/MinIO) skeleton is intentionally omitted until credentials are supplied.
-          commit-message: feat(idempotency): add idempotency helper and tests
-          labels: infra,bug
+          commit-message: "feat(idempotency): add idempotency helper and tests"
+          labels: "infra,bug"
           files: |
             app/idempotency.py: |
               # Lightweight idempotency helper: dedupe by leadgen_id before creating a Lead.
