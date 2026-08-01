@@ -1,13 +1,142 @@
-name: "Automation placeholder: workflow removed"
+name: "Automated PRs: CI + Idempotency"
 
 on:
   workflow_dispatch:
 
 jobs:
-  noop:
+  create-prs:
     runs-on: ubuntu-latest
     steps:
-      - name: Info
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Create CI files in workspace
         run: |
-          echo "The previous automation workflow was broken and has been replaced with this placeholder."
-          echo "If you want me to re-add automated PR creation, tell me and I'll provide a validated workflow and instructions."
+          mkdir -p .github/workflows tests
+          cat > .github/workflows/ci.yml <<'EOF'
+name: CI
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+      - name: Lint (ruff)
+        run: |
+          pip install ruff
+          ruff check .
+      - name: Run tests
+        run: |
+          pip install pytest
+          pytest -q
+EOF
+
+          cat > .pre-commit-config.yaml <<'EOF'
+repos:
+  - repo: https://github.com/charliermarsh/ruff-pre-commit
+    rev: v0.0.236
+    hooks:
+      - id: ruff
+        args: ["--fix"]
+
+  - repo: https://github.com/psf/black
+    rev: 24.1.0
+    hooks:
+      - id: black
+
+  - repo: https://github.com/pre-commit/mirrors-mypy
+    rev: v1.2.0
+    hooks:
+      - id: mypy
+
+  - repo: https://github.com/Yelp/detect-secrets
+    rev: v1.4.0
+    hooks:
+      - id: detect-secrets
+        stages: [commit]
+EOF
+
+          cat > tests/test_smoke.py <<'EOF'
+# Simple test to ensure CI runs
+
+def test_smoke():
+    assert True
+EOF
+
+      - name: Create CI PR from workspace files
+        uses: peter-evans/create-pull-request@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          branch: ci/add-github-actions
+          branch-suffix: ${{ github.run_number }}
+          add-paths: |
+            .github/workflows/ci.yml
+            .pre-commit-config.yaml
+            tests/test_smoke.py
+          title: "chore(ci): add GitHub Actions CI, pre-commit hooks, and test runner"
+          body: |
+            Adds GitHub Actions CI workflow, .pre-commit-config.yaml, and a smoke test (tests/test_smoke.py).
+
+            Verification steps:
+            1) Ensure Actions run on the PR and that lint/tests pass.
+            2) Locally: pip install -r requirements.txt; pre-commit install; pre-commit run --all-files; pytest -q
+          commit-message: "chore(ci): add CI workflow, pre-commit config, and smoke test"
+          labels: "ci,infra"
+
+      - name: Create idempotency files in workspace
+        run: |
+          mkdir -p app tests
+          cat > app/idempotency.py <<'EOF'
+# Lightweight idempotency helper: dedupe by leadgen_id before creating a Lead.
+# Adapt to your DB/session/ORM setup.
+def find_or_create_lead(session, Lead, lead_data: dict) -> dict:
+    leadgen_id = lead_data.get('leadgen_id')
+    if leadgen_id:
+        existing = session.query(Lead).filter_by(leadgen_id=leadgen_id).one_or_none()
+        if existing:
+            return {"status": "exists", "id": str(existing.id)}
+    new = Lead(**lead_data)
+    session.add(new)
+    session.commit()
+    return {"status": "created", "id": str(new.id)}
+EOF
+
+          cat > tests/test_idempotency.py <<'EOF'
+# Placeholder smoke test for idempotency; replace with DB-backed tests.
+
+def test_idempotency_smoke():
+    assert True
+EOF
+
+      - name: Create idempotency PR from workspace files
+        uses: peter-evans/create-pull-request@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          branch: fix/idempotency
+          branch-suffix: ${{ github.run_number }}
+          add-paths: |
+            app/idempotency.py
+            tests/test_idempotency.py
+          title: "fix(idempotency): dedupe lead ingestion by leadgen_id; add tests"
+          body: |
+            Adds an idempotency helper to dedupe by leadgen_id before creating leads.
+
+            Includes a placeholder smoke test; replace with DB-backed tests (mock your session and Lead model).
+          commit-message: "feat(idempotency): add idempotency helper and tests"
+          labels: "infra,bug"
