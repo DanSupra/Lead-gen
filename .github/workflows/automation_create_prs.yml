@@ -1,4 +1,4 @@
-name: Automated PRs: CI + Idempotency
+name: "Automated PRs: CI + Idempotency"
 
 on:
   workflow_dispatch:
