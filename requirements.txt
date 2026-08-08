@@ -1,7 +1,4 @@
-fastapi
-uvicorn[standard]
-sqlalchemy
-psycopg[binary]
-requests
-celery[redis]
-python-dotenv
+requests==2.31.0
+python-dotenv==1.0.0
+click==8.1.7
+pytz==2023.3
